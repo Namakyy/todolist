@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>To-Do</title>
+<style>
+  :root{
+    --bg:#121212; --card:#1e1e1e; --card2:#262626; --text:#f2f2f2;
+    --muted:#9a9a9a; --accent:#4f8cff; --green:#3ecf6f; --orange:#e8b23a; --danger:#e05d5d;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,Roboto,"Segoe UI",sans-serif;
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+  }
+  header{
+    padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;
+  }
+  header h1{font-size:22px; margin:0;}
+  .btn-add{
+    background:var(--accent); color:#fff; border:none; border-radius:50%;
+    width:40px; height:40px; font-size:22px; display:flex; align-items:center; justify-content:center;
+  }
+  #screen-lists{padding:8px 12px;}
+  .list-card{
+    background:var(--card); border-radius:14px; padding:14px; margin-bottom:10px;
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .list-card .top{display:flex; justify-content:space-between; align-items:center;}
+  .list-card .name{font-size:17px; font-weight:600;}
+  .badge{font-size:11px; padding:3px 8px; border-radius:20px; font-weight:600;}
+  .badge.actif{background:rgba(62,207,111,.15); color:var(--green);}
+  .badge.programme{background:rgba(232,178,58,.15); color:var(--orange);}
+  .badge.inactif{background:rgba(255,255,255,.08); color:var(--muted);}
+  .meta{font-size:12.5px; color:var(--muted);}
+
+  #screen-detail{display:none; padding:8px 12px;}
+  .back{background:none; border:none; color:var(--accent); font-size:16px; padding:8px 0;}
+  .detail-title{
+    width:100%; background:transparent; border:none; color:var(--text);
+    font-size:22px; font-weight:700; margin:6px 0 10px; padding:4px 0;
+  }
+  .activation-box{
+    background:var(--card); border-radius:14px; padding:12px; margin-bottom:14px;
+  }
+  .activation-row{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .activation-row:last-child{margin-bottom:0;}
+  .toggle{
+    width:46px; height:26px; border-radius:20px; background:#3a3a3a; position:relative; border:none;
+  }
+  .toggle.on{background:var(--green);}
+  .toggle::after{
+    content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%;
+    background:#fff; transition:.15s;
+  }
+  .toggle.on::after{left:23px;}
+  input[type=date]{
+    background:var(--card2); border:1px solid #333; color:var(--text);
+    border-radius:8px; padding:6px 8px; font-size:14px;
+  }
+  .item{
+    display:flex; align-items:center; gap:10px; background:var(--card); border-radius:10px;
+    padding:12px; margin-bottom:8px;
+  }
+  .item.done .item-text{text-decoration:line-through; color:var(--muted);}
+  .checkbox{
+    width:24px; height:24px; border-radius:50%; border:2px solid #555; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:14px; color:#fff;
+  }
+  .checkbox.checked{background:var(--green); border-color:var(--green);}
+  .item-text{flex:1; font-size:15.5px; background:transparent; border:none; color:var(--text); outline:none;}
+  .item-del{color:var(--danger); background:none; border:none; font-size:18px; padding:4px 6px;}
+  .add-item-row{display:flex; gap:8px; margin-top:6px;}
+  .add-item-row input{
+    flex:1; background:var(--card); border:1px solid #333; border-radius:10px;
+    padding:12px; color:var(--text); font-size:15px;
+  }
+  .add-item-row button{
+    background:var(--accent); border:none; color:#fff; border-radius:10px; padding:0 16px; font-size:20px;
+  }
+  .empty{color:var(--muted); text-align:center; margin-top:60px; font-size:14px;}
+  .del-list{color:var(--danger); background:none; border:none; font-size:14px; margin-top:14px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Mes listes</h1>
+  <button class="btn-add" onclick="createList()">+</button>
+</header>
+
+<div id="screen-lists"></div>
+
+<div id="screen-detail">
+  <button class="back" onclick="closeDetail()">‹ Retour</button>
+  <input class="detail-title" id="detailTitle" oninput="renameList()" placeholder="Nom de la liste">
+
+  <div class="activation-box">
+    <div class="activation-row">
+      <span>Activation manuelle</span>
+      <button class="toggle" id="toggleManual" onclick="toggleActive()"></button>
+    </div>
+    <div class="activation-row">
+      <span>Activer à une date</span>
+      <input type="date" id="activationDate" onchange="setDate()">
+    </div>
+  </div>
+
+  <div id="itemsList"></div>
+
+  <div class="add-item-row">
+    <input id="newItemInput" placeholder="Nouvel élément..." onkeydown="if(event.key==='Enter')addItem()">
+    <button onclick="addItem()">+</button>
+  </div>
+
+  <button class="del-list" onclick="deleteCurrentList()">Supprimer cette liste</button>
+</div>
+
+<script>
+const CAP = window.Capacitor;
+let LocalNotifications = null;
+if (CAP && CAP.Plugins) LocalNotifications = CAP.Plugins.LocalNotifications;
+
+let lists = JSON.parse(localStorage.getItem('todo_lists') || '[]');
+let currentId = null;
+
+function save(){ localStorage.setItem('todo_lists', JSON.stringify(lists)); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+function computeStatus(list){
+  if (list.activationDate){
+    if (list.activationDate <= todayStr()) return 'actif';
+    return 'programme';
+  }
+  return list.manualActive ? 'actif' : 'inactif';
+}
+
+function renderLists(){
+  const el = document.getElementById('screen-lists');
+  if (lists.length === 0){
+    el.innerHTML = '<div class="empty">Aucune liste. Appuie sur + pour en créer une.</div>';
+    return;
+  }
+  el.innerHTML = lists.map(l => {
+    const status = computeStatus(l);
+    const done = l.items.filter(i=>i.done).length;
+    const label = status === 'actif' ? 'ACTIF' : status === 'programme' ? 'PROGRAMMÉ' : 'INACTIF';
+    let metaText = `${done}/${l.items.length} fait${l.items.length>1?'s':''}`;
+    if (l.activationDate) metaText += ` · activation le ${l.activationDate}`;
+    return `<div class="list-card" onclick="openDetail('${l.id}')">
+      <div class="top">
+        <span class="name">${escapeHtml(l.name || 'Sans titre')}</span>
+        <span class="badge ${status}">${label}</span>
+      </div>
+      <span class="meta">${metaText}</span>
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function createList(){
+  const list = { id: uid(), name: 'Nouvelle liste', items: [], manualActive: false, activationDate: null, notified: false };
+  lists.unshift(list);
+  save(); renderLists(); openDetail(list.id);
+}
+
+function openDetail(id){
+  currentId = id;
+  const list = lists.find(l=>l.id===id);
+  document.getElementById('detailTitle').value = list.name;
+  document.getElementById('activationDate').value = list.activationDate || '';
+  document.getElementById('toggleManual').classList.toggle('on', list.manualActive);
+  renderItems();
+  document.getElementById('screen-lists').style.display='none';
+  document.getElementById('screen-detail').style.display='block';
+}
+
+function closeDetail(){
+  document.getElementById('screen-detail').style.display='none';
+  document.getElementById('screen-lists').style.display='block';
+  currentId=null;
+  renderLists();
+}
+
+function currentList(){ return lists.find(l=>l.id===currentId); }
+
+function renameList(){
+  currentList().name = document.getElementById('detailTitle').value;
+  save();
+}
+
+function toggleActive(){
+  const list = currentList();
+  list.manualActive = !list.manualActive;
+  document.getElementById('toggleManual').classList.toggle('on', list.manualActive);
+  if (list.manualActive) notifyActive(list);
+  save();
+}
+
+function setDate(){
+  const list = currentList();
+  const val = document.getElementById('activationDate').value;
+  list.activationDate = val || null;
+  list.notified = false;
+  if (val) scheduleNotification(list);
+  save();
+}
+
+function renderItems(){
+  const list = currentList();
+  const el = document.getElementById('itemsList');
+  if (list.items.length === 0){
+    el.innerHTML = '<div class="empty">Pas encore d\'élément.</div>';
+    return;
+  }
+  el.innerHTML = list.items.map(it => `
+    <div class="item ${it.done?'done':''}">
+      <button class="checkbox ${it.done?'checked':''}" onclick="toggleItem('${it.id}')">${it.done?'✓':''}</button>
+      <input class="item-text" value="${escapeHtml(it.text)}" oninput="editItem('${it.id}', this.value)">
+      <button class="item-del" onclick="deleteItem('${it.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+function addItem(){
+  const input = document.getElementById('newItemInput');
+  if (!input.value.trim()) return;
+  currentList().items.push({ id: uid(), text: input.value.trim(), done:false });
+  input.value='';
+  save(); renderItems();
+}
+
+function toggleItem(id){
+  const it = currentList().items.find(i=>i.id===id);
+  it.done = !it.done;
+  save(); renderItems();
+}
+
+function editItem(id, val){
+  currentList().items.find(i=>i.id===id).text = val;
+  save();
+}
+
+function deleteItem(id){
+  const list = currentList();
+  list.items = list.items.filter(i=>i.id!==id);
+  save(); renderItems();
+}
+
+function deleteCurrentList(){
+  lists = lists.filter(l=>l.id!==currentId);
+  save(); closeDetail();
+}
+
+// --- Notifications ---
+async function initNotifications(){
+  if (!LocalNotifications) return;
+  try { await LocalNotifications.requestPermissions(); } catch(e){}
+}
+
+async function notifyActive(list){
+  if (!LocalNotifications) return;
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        title: 'Liste active',
+        body: `"${list.name}" est maintenant active`,
+        id: Math.floor(Math.random()*100000),
+        schedule: { at: new Date(Date.now()+500) }
+      }]
+    });
+  } catch(e){ console.log(e); }
+}
+
+async function scheduleNotification(list){
+  if (!LocalNotifications || !list.activationDate) return;
+  const target = new Date(list.activationDate + 'T09:00:00');
+  if (target < new Date()) return;
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        title: 'Liste active',
+        body: `"${list.name}" est maintenant active`,
+        id: Math.floor(Math.random()*100000),
+        schedule: { at: target }
+      }]
+    });
+  } catch(e){ console.log(e); }
+}
+
+// vérifie au démarrage si des listes programmées sont devenues actives sans notif
+function checkPendingActivations(){
+  let changed = false;
+  lists.forEach(l => {
+    if (l.activationDate && l.activationDate <= todayStr() && !l.notified){
+      l.notified = true; changed = true;
+    }
+  });
+  if (changed) save();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
+  checkPendingActivations();
+  renderLists();
+});
+</script>
+</body>
+</html>
