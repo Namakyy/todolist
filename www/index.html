@@ -192,16 +192,18 @@ function closeDetail(){
 function currentList(){ return lists.find(l=>l.id===currentId); }
 
 function renameList(){
-  currentList().name = document.getElementById('detailTitle').value;
+  const list = currentList();
+  list.name = document.getElementById('detailTitle').value;
   save();
+  syncNotificationForList(list);
 }
 
 function toggleActive(){
   const list = currentList();
   list.manualActive = !list.manualActive;
   document.getElementById('toggleManual').classList.toggle('on', list.manualActive);
-  if (list.manualActive) notifyActive(list);
   save();
+  syncNotificationForList(list);
 }
 
 function setDate(){
@@ -209,8 +211,8 @@ function setDate(){
   const val = document.getElementById('activationDate').value;
   list.activationDate = val || null;
   list.notified = false;
-  if (val) scheduleNotification(list);
   save();
+  syncNotificationForList(list);
 }
 
 function renderItems(){
@@ -232,15 +234,19 @@ function renderItems(){
 function addItem(){
   const input = document.getElementById('newItemInput');
   if (!input.value.trim()) return;
-  currentList().items.push({ id: uid(), text: input.value.trim(), done:false });
+  const list = currentList();
+  list.items.push({ id: uid(), text: input.value.trim(), done:false });
   input.value='';
   save(); renderItems();
+  syncNotificationForList(list);
 }
 
 function toggleItem(id){
-  const it = currentList().items.find(i=>i.id===id);
+  const list = currentList();
+  const it = list.items.find(i=>i.id===id);
   it.done = !it.done;
   save(); renderItems();
+  syncNotificationForList(list);
 }
 
 function editItem(id, val){
@@ -252,9 +258,12 @@ function deleteItem(id){
   const list = currentList();
   list.items = list.items.filter(i=>i.id!==id);
   save(); renderItems();
+  syncNotificationForList(list);
 }
 
 function deleteCurrentList(){
+  const list = currentList();
+  cancelListNotification(list);
   lists = lists.filter(l=>l.id!==currentId);
   save(); closeDetail();
 }
@@ -263,45 +272,69 @@ function deleteCurrentList(){
 async function initNotifications(){
   if (!LocalNotifications) return;
   try { await LocalNotifications.requestPermissions(); } catch(e){}
+  try {
+    LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+      const extra = action && action.notification && action.notification.extra;
+      const listId = extra && extra.listId;
+      if (listId && lists.find(l => l.id === listId)) {
+        openDetail(listId);
+      }
+    });
+  } catch(e){}
 }
 
-async function notifyActive(list){
+// id numérique stable dérivé de l'id texte de la liste (pour reposter/annuler la même notif)
+function stableNotifId(id){
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0x7fffffff;
+  return (h % 99999) + 1;
+}
+
+// simule un texte barré avec un caractère combinant Unicode (compatible notifications Android)
+function strike(text){
+  return text.split('').map(c => c + '\u0336').join('');
+}
+
+async function updateListNotification(list){
   if (!LocalNotifications) return;
+  const notifId = stableNotifId(list.id);
+  if (list.items.length === 0){
+    await cancelListNotification(list);
+    return;
+  }
+  const lines = list.items.map(it => it.done ? ('✅ ' + strike(it.text)) : ('▢ ' + it.text));
   try {
     await LocalNotifications.schedule({
       notifications: [{
-        title: 'Liste active',
-        body: `"${list.name}" est maintenant active`,
-        id: Math.floor(Math.random()*100000),
-        schedule: { at: new Date(Date.now()+500) }
+        id: notifId,
+        title: list.name || 'Liste',
+        body: lines.join('\n'),
+        schedule: { at: new Date(Date.now() + 300) },
+        extra: { listId: list.id }
       }]
     });
   } catch(e){ console.log(e); }
 }
 
-async function scheduleNotification(list){
-  if (!LocalNotifications || !list.activationDate) return;
-  const target = new Date(list.activationDate + 'T09:00:00');
-  if (target < new Date()) return;
-  try {
-    await LocalNotifications.schedule({
-      notifications: [{
-        title: 'Liste active',
-        body: `"${list.name}" est maintenant active`,
-        id: Math.floor(Math.random()*100000),
-        schedule: { at: target }
-      }]
-    });
-  } catch(e){ console.log(e); }
+async function cancelListNotification(list){
+  if (!LocalNotifications) return;
+  try { await LocalNotifications.cancel({ notifications: [{ id: stableNotifId(list.id) }] }); } catch(e){}
 }
 
-// vérifie au démarrage si des listes programmées sont devenues actives sans notif
+// pousse ou retire la notif selon le statut actuel de la liste
+function syncNotificationForList(list){
+  if (computeStatus(list) === 'actif') updateListNotification(list);
+  else cancelListNotification(list);
+}
+
+// vérifie au démarrage si des listes programmées sont devenues actives, et resynchronise toutes les notifs actives
 function checkPendingActivations(){
   let changed = false;
   lists.forEach(l => {
     if (l.activationDate && l.activationDate <= todayStr() && !l.notified){
       l.notified = true; changed = true;
     }
+    syncNotificationForList(l);
   });
   if (changed) save();
 }
@@ -313,4 +346,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 </body>
-</html>
+  </html>
