@@ -298,18 +298,20 @@ function strike(text){
 async function updateListNotification(list){
   if (!LocalNotifications) return;
   const notifId = stableNotifId(list.id);
-  if (list.items.length === 0){
+  const remaining = list.items.filter(it => !it.done);
+  if (remaining.length === 0){
     await cancelListNotification(list);
     return;
   }
-  const lines = list.items.map(it => it.done ? ('✅ ' + strike(it.text)) : ('▢ ' + it.text));
+  const lines = remaining.map(it => '▢ ' + it.text);
   try {
     await LocalNotifications.schedule({
       notifications: [{
         id: notifId,
         title: list.name || 'Liste',
-        body: lines.join('\n'),
-        schedule: { at: new Date(Date.now() + 300) },
+        body: `${remaining.length} restant${remaining.length>1?'s':''}`,
+        largeBody: lines.join('\n'),
+        summaryText: list.name || 'Liste',
         extra: { listId: list.id }
       }]
     });
@@ -346,4 +348,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 </body>
-  </html>
+</html>
